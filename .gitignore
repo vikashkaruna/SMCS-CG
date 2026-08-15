@@ -1,0 +1,14 @@
+node_modules
+.DS_Store
+.next
+out
+coverage
+dist
+*.log
+*.tsbuildinfo
+.env
+.env.production
+prisma/*.db
+prisma/*.db-journal
+storage/assets/*
+!storage/assets/.gitkeep

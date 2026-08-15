@@ -1,0 +1,5 @@
+import { NextRequest, NextResponse } from "next/server";
+import { completeLinkedInOAuth } from "@/lib/services/linkedin";
+import { env } from "@/lib/env";
+
+export async function GET(request: NextRequest) { const url = new URL(request.url); const code = url.searchParams.get("code"); const state = url.searchParams.get("state"); const oauthCookie = request.cookies.get("smcs_linkedin_oauth")?.value; if (!code || !state || !oauthCookie) return NextResponse.redirect(new URL("/settings/linkedin?error=oauth_state", env.APP_URL)); try { const stored = JSON.parse(oauthCookie) as { state: string; verifier: string; userId: string }; if (stored.state !== state) return NextResponse.redirect(new URL("/settings/linkedin?error=oauth_state", env.APP_URL)); await completeLinkedInOAuth(code, stored.verifier, stored.userId); const response = NextResponse.redirect(new URL("/settings/linkedin?connected=1", env.APP_URL)); response.cookies.delete("smcs_linkedin_oauth"); return response; } catch { return NextResponse.redirect(new URL("/settings/linkedin?error=oauth_failed", env.APP_URL)); } }

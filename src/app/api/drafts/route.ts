@@ -1,0 +1,13 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getCurrentUser } from "@/lib/auth";
+import { requireCsrf } from "@/lib/csrf";
+import { db } from "@/lib/db";
+import { errorResponse } from "@/lib/http";
+import { generateContent } from "@/lib/services/ai";
+import { renderEditorialAsset } from "@/lib/services/assets";
+import { audit } from "@/lib/audit";
+import { env } from "@/lib/env";
+
+export async function GET(request: NextRequest) { const user = await getCurrentUser(request); if (!user) return errorResponse(new Error("UNAUTHORIZED")); const drafts = await db.draft.findMany({ where: { userId: user.id }, include: { story: true, assets: true }, orderBy: { updatedAt: "desc" } }); return NextResponse.json(drafts); }
+export async function POST(request: NextRequest) { try { const n8nRequest = Boolean(env.N8N_INGESTION_TOKEN && request.headers.get("authorization") === `Bearer ${env.N8N_INGESTION_TOKEN}`); const user = await getCurrentUser(request) ?? (n8nRequest ? await db.user.findFirst({ orderBy: { createdAt: "asc" } }) : null); if (!user) throw new Error("UNAUTHORIZED"); if (!n8nRequest) await requireCsrf(request); const { storyId } = z.object({ storyId: z.string() }).parse(await request.json()); const story = await db.story.findFirst({ where: { id: storyId, userId: user.id }, include: { source: true } }); if (!story) return NextResponse.json({ error: "Signal not found." }, { status: 404 }); if (story.relevanceScore < 35) return NextResponse.json({ error: "This signal is below the content threshold." }, { status: 422 }); const style = await db.styleProfile.findFirst({ where: { userId: user.id, isActive: true }, orderBy: { updatedAt: "desc" } }); const generated = await generateContent(story, style?.guide); const asset = await renderEditorialAsset(generated.packet.headline, generated.packet.why_it_matters); const first = generated.variants[0]; const draft = await db.draft.create({ data: { userId: user.id, storyId: story.id, title: story.title, insightPacket: JSON.stringify(generated.packet), variants: JSON.stringify(generated.variants), body: first.body, hashtags: JSON.stringify(first.hashtags), fallbackUsed: generated.fallbackUsed, assetBrief: JSON.stringify({ format: "1200x1200", visual_type: "Editorial data-card", palette: ["#071A2F", "#123A5A", "#C89B3C", "#2CB7D8"] }), assets: { create: { kind: "editorial-card", mimeType: asset.mimeType, storageKey: asset.key, checksum: asset.checksum } } } }); await db.story.update({ where: { id: story.id }, data: { status: "DRAFTED" } }); await audit(user.id, "DRAFT_GENERATED", "Draft", draft.id, { fallbackUsed: generated.fallbackUsed }); return NextResponse.json({ draft }); } catch (error) { return errorResponse(error); } }

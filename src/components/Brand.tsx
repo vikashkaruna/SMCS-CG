@@ -1,0 +1,1 @@
+export function Brand() { return <div className="brand-mark"><span className="brand-icon">S</span><div><div className="brand-name">SMCS Studio</div><div className="brand-caption">Axiom editorial</div></div></div>; }

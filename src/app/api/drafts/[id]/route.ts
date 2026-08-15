@@ -1,0 +1,11 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getCurrentUser } from "@/lib/auth";
+import { requireCsrf } from "@/lib/csrf";
+import { checksum } from "@/lib/crypto";
+import { db } from "@/lib/db";
+import { errorResponse } from "@/lib/http";
+import { audit } from "@/lib/audit";
+
+const schema = z.object({ body: z.string().min(20).max(3000), hashtags: z.array(z.string().min(1).max(50)).min(1).max(12), selectedVariant: z.number().int().min(0).max(2).optional(), action: z.enum(["save", "review", "approve", "archive"]) });
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) { try { const user = await getCurrentUser(request); if (!user) throw new Error("UNAUTHORIZED"); await requireCsrf(request); const { id } = await params; const payload = schema.parse(await request.json()); const current = await db.draft.findFirst({ where: { id, userId: user.id } }); if (!current) return NextResponse.json({ error: "Draft not found." }, { status: 404 }); if (current.status === "PUBLISHED") return NextResponse.json({ error: "Published drafts are immutable." }, { status: 409 }); const contentChecksum = checksum(`${payload.body}\n${payload.hashtags.join(" ")}`); const data: { body: string; hashtags: string; selectedVariant: number; status?: string; approvedAt?: Date; reviewedChecksum?: string | null } = { body: payload.body, hashtags: JSON.stringify(payload.hashtags), selectedVariant: payload.selectedVariant ?? current.selectedVariant }; if (payload.action === "review") data.status = "REVIEWED"; if (payload.action === "approve") { if (!["REVIEWED", "APPROVED"].includes(current.status)) return NextResponse.json({ error: "Mark the draft reviewed before approving it." }, { status: 409 }); data.status = "APPROVED"; data.approvedAt = new Date(); data.reviewedChecksum = contentChecksum; } if (payload.action === "archive") data.status = "ARCHIVED"; const draft = await db.draft.update({ where: { id }, data: { ...data, revisions: { create: { body: payload.body, hashtags: JSON.stringify(payload.hashtags), action: payload.action, checksum: contentChecksum } } } }); await audit(user.id, `DRAFT_${payload.action.toUpperCase()}`, "Draft", id, { checksum: contentChecksum }); return NextResponse.json({ draft, contentChecksum }); } catch (error) { return errorResponse(error); } }

@@ -1,0 +1,16 @@
+{
+  "name": "SMCS · RSS signal ingestion",
+  "nodes": [
+    { "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } }, "id": "schedule", "name": "Every 6 hours", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [-520, 0] },
+    { "parameters": { "url": "={{$env.SMCS_RSS_URL}}", "options": {} }, "id": "rss", "name": "Read configured RSS", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1.1, "position": [-280, 0] },
+    { "parameters": { "jsCode": "return items.map(item => ({ json: { sourceId: $env.SMCS_SOURCE_ID, title: item.json.title, canonicalUrl: item.json.link, publisher: item.json.creator || item.json.publisher || 'RSS source', summary: item.json.contentSnippet || item.json.content || item.json.title } }));" }, "id": "normalize", "name": "Normalize signal", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [-40, 0] },
+    { "parameters": { "method": "POST", "url": "={{$env.SMCS_APP_URL}}/api/ingestion/n8n", "sendHeaders": true, "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{$env.SMCS_N8N_INGESTION_TOKEN}}" }, { "name": "Content-Type", "value": "application/json" }] }, "sendBody": true, "specifyBody": "json", "jsonBody": "={{$json}}", "options": {} }, "id": "ingest", "name": "Send to SMCS", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [220, 0] },
+    { "parameters": { "conditions": { "number": [{ "value1": "={{$json.relevanceScore || 0}}", "operation": "largerEqual", "value2": 35 }] } }, "id": "qualified", "name": "Qualified?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [460, 0] },
+    { "parameters": { "method": "POST", "url": "={{$env.SMCS_APP_URL}}/api/drafts", "sendHeaders": true, "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{$env.SMCS_N8N_INGESTION_TOKEN}}" }, { "name": "Content-Type", "value": "application/json" }] }, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ { storyId: $json.storyId } }}" }, "id": "draft", "name": "Generate draft", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [700, -80] },
+    { "parameters": { "method": "POST", "url": "={{$env.SMCS_NOTIFY_WEBHOOK_URL}}", "sendBody": true, "specifyBody": "json", "jsonBody": "={{ { text: 'New SMCS draft ready for review', storyId: $json.storyId, appUrl: $env.SMCS_APP_URL + '/drafts' } }}", "options": {} }, "id": "notify", "name": "Notify reviewer", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [940, -80] }
+  ],
+  "connections": { "Every 6 hours": { "main": [[{ "node": "Read configured RSS", "type": "main", "index": 0 }]] }, "Read configured RSS": { "main": [[{ "node": "Normalize signal", "type": "main", "index": 0 }]] }, "Normalize signal": { "main": [[{ "node": "Send to SMCS", "type": "main", "index": 0 }]] }, "Send to SMCS": { "main": [[{ "node": "Qualified?", "type": "main", "index": 0 }]] }, "Qualified?": { "main": [[{ "node": "Generate draft", "type": "main", "index": 0 }], []] }, "Generate draft": { "main": [[{ "node": "Notify reviewer", "type": "main", "index": 0 }]] } },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "smcs-local-mvp"
+}

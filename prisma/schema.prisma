@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  email              String              @unique
+  passwordHash       String
+  displayName        String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  sessions           Session[]
+  sources            Source[]
+  stories            Story[]
+  drafts             Draft[]
+  styleProfiles      StyleProfile[]
+  approvedExamples   ApprovedPostExample[]
+  credentials        OAuthCredential[]
+  auditEvents        AuditEvent[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Source {
+  id          String   @id @default(cuid())
+  name        String
+  url         String   @unique
+  tier        String
+  enabled     Boolean  @default(true)
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stories     Story[]
+}
+
+model Story {
+  id                 String   @id @default(cuid())
+  canonicalUrl       String
+  title              String
+  publisher          String
+  publishedAt        DateTime?
+  summary            String?
+  entities           String?
+  fingerprint        String
+  relevanceScore     Float    @default(0)
+  verificationScore Float    @default(0)
+  status             String   @default("INGESTED")
+  sourceId           String
+  userId             String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  source             Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claims             Claim[]
+  drafts             Draft[]
+
+  @@unique([userId, canonicalUrl])
+  @@unique([userId, fingerprint])
+  @@index([userId, status])
+  @@index([userId, relevanceScore])
+}
+
+model Claim {
+  id          String   @id @default(cuid())
+  statement   String
+  confidence  Float
+  sourceUrl   String
+  sourceName  String
+  isPrimary   Boolean  @default(false)
+  storyId     String
+  createdAt   DateTime @default(now())
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+}
+
+model Draft {
+  id               String         @id @default(cuid())
+  storyId          String
+  userId           String
+  status           String         @default("DRAFT")
+  selectedVariant  Int            @default(0)
+  title            String
+  insightPacket    String
+  variants         String
+  body             String
+  hashtags         String
+  assetBrief       String
+  fallbackUsed     Boolean        @default(false)
+  reviewedChecksum String?
+  approvedAt       DateTime?
+  publishedAt      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  story            Story          @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revisions        DraftRevision[]
+  assets           Asset[]
+  publishLogs      PublishLog[]
+
+  @@index([userId, status])
+}
+
+model DraftRevision {
+  id           String   @id @default(cuid())
+  draftId      String
+  body         String
+  hashtags     String
+  action       String
+  checksum     String
+  createdAt    DateTime @default(now())
+  draft        Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+}
+
+model StyleProfile {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  guide       String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApprovedPostExample {
+  id          String   @id @default(cuid())
+  userId      String
+  body        String
+  metadata    String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  draftId     String
+  kind        String
+  mimeType    String
+  storageKey  String
+  checksum    String
+  width       Int      @default(1200)
+  height      Int      @default(1200)
+  createdAt   DateTime @default(now())
+  draft       Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+}
+
+model OAuthCredential {
+  id                   String   @id @default(cuid())
+  provider             String
+  userId               String
+  memberUrn            String
+  memberName           String?
+  encryptedAccessToken String
+  expiresAt            DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}
+
+model PublishLog {
+  id              String   @id @default(cuid())
+  draftId         String
+  status          String   @default("PENDING")
+  contentChecksum String
+  linkedInPostUrn String?
+  linkedInAssetUrn String?
+  payload         String
+  error           String?
+  createdAt       DateTime @default(now())
+  draft           Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}

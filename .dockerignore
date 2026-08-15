@@ -1,0 +1,14 @@
+node_modules
+.next
+coverage
+.git
+.gitignore
+.env
+.env.*
+!.env.production.example
+prisma/*.db
+prisma/*.db-journal
+storage/assets/*
+!storage/assets/.gitkeep
+*.log
+README.md

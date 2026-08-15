@@ -1,0 +1,11 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getCurrentUser } from "@/lib/auth";
+import { requireCsrf } from "@/lib/csrf";
+import { canonicalizeUrl, fingerprint, scoreStory } from "@/lib/content";
+import { db } from "@/lib/db";
+import { errorResponse } from "@/lib/http";
+
+const schema = z.object({ sourceId: z.string(), title: z.string().min(5).max(240), canonicalUrl: z.string().url(), publisher: z.string().min(2).max(120), summary: z.string().max(2000).optional() });
+export async function GET(request: NextRequest) { const user = await getCurrentUser(request); if (!user) return errorResponse(new Error("UNAUTHORIZED")); const stories = await db.story.findMany({ where: { userId: user.id }, include: { source: true, _count: { select: { drafts: true } } }, orderBy: [{ relevanceScore: "desc" }, { createdAt: "desc" }] }); return NextResponse.json(stories); }
+export async function POST(request: NextRequest) { try { const user = await getCurrentUser(request); if (!user) throw new Error("UNAUTHORIZED"); await requireCsrf(request); const body = schema.parse(await request.json()); const source = await db.source.findFirst({ where: { id: body.sourceId, userId: user.id } }); if (!source) return NextResponse.json({ error: "Source not found." }, { status: 404 }); const url = canonicalizeUrl(body.canonicalUrl); const fp = fingerprint(body.title.replace(/https?:\/\/\S+/g, "")); const existing = await db.story.findFirst({ where: { userId: user.id, OR: [{ canonicalUrl: url }, { fingerprint: fp }] }, include: { source: true } }); if (existing) return NextResponse.json({ story: existing, duplicate: true }); const relevanceScore = scoreStory({ ...body, tier: source.tier }); const story = await db.story.create({ data: { ...body, canonicalUrl: url, fingerprint: fp, userId: user.id, sourceId: source.id, relevanceScore, verificationScore: source.tier === "PRIMARY" ? 0.9 : source.tier === "CREDIBLE" ? 0.72 : 0.35, status: relevanceScore >= 35 ? "QUALIFIED" : "INGESTED", claims: { create: [{ statement: body.summary || body.title, confidence: source.tier === "PRIMARY" ? 0.9 : 0.65, sourceUrl: url, sourceName: body.publisher, isPrimary: source.tier === "PRIMARY" }] } }, include: { source: true, claims: true } }); return NextResponse.json({ story, duplicate: false }); } catch (error) { return errorResponse(error); } }
