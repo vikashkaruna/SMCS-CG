@@ -1,6 +1,6 @@
 # Deploy SMCS on a Hostinger VPS
 
-This deployment runs SMCS as one Docker container with persistent Docker volumes for the SQLite database and generated assets. Hostinger’s host Nginx handles the public domain and TLS certificate.
+This deployment runs SMCS in bridge mode with persistent Docker volumes for the SQLite database and generated assets. Traefik runs separately in host network mode and discovers SMCS through the Docker provider and the external `traefik_default` bridge network.
 
 ## 1. VPS prerequisites
 
@@ -27,6 +27,9 @@ nano .env.production
 Set at least:
 
 - `APP_URL` to the final HTTPS URL.
+- `SMCS_HOST` to the public hostname routed by Traefik.
+- `TRAEFIK_NETWORK_NAME` to the actual external Docker network used by Traefik, normally `traefik_default`.
+- `TRAEFIK_ENTRYPOINT` and `TRAEFIK_CERTRESOLVER` to the names configured in your Traefik container.
 - `SESSION_SECRET` to a long random value.
 - `TOKEN_ENCRYPTION_KEY` to the output of `openssl rand -base64 32`.
 - `N8N_INGESTION_TOKEN` to a separate long random value if n8n will be used.
@@ -38,11 +41,19 @@ For live LinkedIn publishing, set the callback URL in the LinkedIn developer app
 https://your-domain.example/api/linkedin/callback
 ```
 
+Before starting SMCS, confirm that the external Traefik network exists:
+
+```bash
+docker network inspect traefik_default >/dev/null
+```
+
+If your Traefik stack uses a different network name, set `TRAEFIK_NETWORK_NAME` accordingly in `.env.production`. Do not create a second network when the Traefik stack already owns the correct one.
+
 ## 3. Build and start
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
-docker compose -f docker-compose.production.yml ps
+docker compose --env-file .env.production -f docker-compose.production.yml ps
 curl http://127.0.0.1:3000/api/health
 ```
 
@@ -53,19 +64,28 @@ The database and generated visuals survive container replacement through these n
 - `smcs_data` → `/app/data`
 - `smcs_assets` → `/app/storage/assets`
 
-## 4. Point the domain at the container
+## 4. Traefik routing
 
-Copy `deploy/nginx/smcs.conf` to the VPS Nginx site configuration and replace `smcs.example.com` with the real domain. Enable it, test, and reload Nginx:
+The compose file attaches SMCS to the external Traefik network and adds these routing labels:
+
+- `traefik.http.routers.smcs.rule=Host(...)`
+- `traefik.http.routers.smcs.entrypoints=websecure`
+- `traefik.http.routers.smcs.tls.certresolver=myresolver`
+- `traefik.http.services.smcs.loadbalancer.server.port=3000`
+- `traefik.docker.network=traefik_default`
+
+The `127.0.0.1:3000:3000` mapping remains intentionally enabled so host-mode Traefik and local health checks can reach the service. If Traefik returns `502`, verify that the label network name exactly matches the external network name and inspect both containers:
 
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
+docker inspect smcs --format '{{json .NetworkSettings.Networks}}'
+docker logs traefik --tail 100
+docker compose --env-file .env.production -f docker-compose.production.yml logs --tail 100 smcs
 ```
 
-Then issue the TLS certificate with Certbot or Hostinger’s SSL tooling. After HTTPS is active, update `APP_URL` and `LINKEDIN_REDIRECT_URI`, then restart:
+After HTTPS is active, update `APP_URL` and `LINKEDIN_REDIRECT_URI`, then restart:
 
 ```bash
-docker compose -f docker-compose.production.yml up -d
+docker compose --env-file .env.production -f docker-compose.production.yml up -d
 ```
 
 ## 5. Operations
@@ -79,7 +99,7 @@ docker compose -f docker-compose.production.yml logs -f smcs
 Restart after configuration changes:
 
 ```bash
-docker compose -f docker-compose.production.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
 ```
 
 Back up the persistent data:
@@ -97,7 +117,7 @@ Do not run `docker compose down -v` unless you intentionally want to delete the 
 ## 6. Security checklist
 
 - Keep `.env.production` outside Git and restrict it with `chmod 600`.
-- Keep the Docker port bound to `127.0.0.1`; expose only Nginx ports 80/443 publicly.
+- Keep the Docker port bound to `127.0.0.1`; expose only Traefik’s ports 80/443 publicly.
 - Use HTTPS before enabling LinkedIn OAuth or live publishing.
 - Keep `CONTENT_STUDIO_PUBLISH_MODE=simulated` until the full approval flow is validated.
 - Rotate `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, AI keys, and n8n tokens if exposed.

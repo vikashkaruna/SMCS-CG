@@ -75,7 +75,7 @@ The test suite covers URL canonicalization, scoring, variant generation, SVG esc
 
 ## Hostinger VPS Docker deployment
 
-For a persistent production container, use [DEPLOY_HOSTINGER.md](./DEPLOY_HOSTINGER.md), `Dockerfile`, and `docker-compose.production.yml`. The compose setup persists the SQLite database and generated assets and binds the app to `127.0.0.1:3000` for an Nginx/HTTPS reverse proxy.
+For a persistent production container, use [DEPLOY_HOSTINGER.md](./DEPLOY_HOSTINGER.md), `Dockerfile`, and `docker-compose.production.yml`. The compose setup persists the SQLite database and generated assets, keeps SMCS on bridge networking, and exposes Traefik labels for the external `traefik_default` network.
 
 To create an uploadable deployment archive locally:
 

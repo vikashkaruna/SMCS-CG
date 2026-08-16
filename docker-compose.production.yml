@@ -12,6 +12,14 @@ services:
       HOSTNAME: 0.0.0.0
     ports:
       - "127.0.0.1:3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.smcs.rule=Host(`${SMCS_HOST:-smcs2.srv1738397.hstgr.cloud}`)"
+      - "traefik.http.routers.smcs.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.smcs.tls=true"
+      - "traefik.http.routers.smcs.tls.certresolver=${TRAEFIK_CERTRESOLVER:-myresolver}"
+      - "traefik.http.services.smcs.loadbalancer.server.port=3000"
+      - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
     volumes:
       - smcs_data:/app/data
       - smcs_assets:/app/storage/assets
@@ -23,7 +31,14 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+    networks:
+      - traefik_net
 
 volumes:
   smcs_data:
   smcs_assets:
+
+networks:
+  traefik_net:
+    external: true
+    name: ${TRAEFIK_NETWORK_NAME:-traefik_default}
