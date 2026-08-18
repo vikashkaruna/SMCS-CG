@@ -123,35 +123,101 @@ Do not run `docker compose down -v` unless you intentionally want to delete the 
 - Rotate `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, AI keys, and n8n tokens if exposed.
 - Back up the Docker volumes before upgrades.
 
-## VK. step-by-step commands to build and deploy SMCS on your VPS using Docker Compose 
+## VK.1. SMCS Container Environment (.env.production)
+Since SMCS needs to communicate with n8n directly over the internal Docker network as well as accept public requests via Traefik, update or verify the following variables:
+
+**A. Traefik Routing & Host Variables**
+SMCS_HOST: Set this to the public domain or subdomain assigned to SMCS (e.g., smcs2.srv1738397.hstgr.cloud). The Docker Compose file relies on this to configure Traefik's Host() rule:
+
+```
+Code snippet
+SMCS_HOST=smcs2.srv1738397.hstgr.cloud
+```
+**B. Inter-Container Communication with n8n**
+Internal n8n Endpoint URL: Since SMCS and n8n are both on the traefik_net Docker network, SMCS should not send internal API requests through the public Traefik domain (which would unnecessarily route out to the internet and back).
+Instead, configure SMCS to call n8n using its Docker service name / container hostname:
+
+Code snippet
+# Use the container's service name or explicit container name on traefik_net
+```
+N8N_API_URL=http://n8n-with-ai-assistant-emty-n8n-1:5678
+```
+# or http://n8n:5678 if n8n service is aliased as n8n on traefik_net
+Authentication Tokens: Ensure shared keys/tokens match between both services for API requests (e.g., webhook signatures or ingestion tokens):
+
+Code snippet
+```
+SMCS_N8N_INGESTION_TOKEN=2248610a46f2c41561e06c800f41c8ab8b99730f9eadcbddce15bc7dcd7ec2c8
+```
+C. Application Binding & Port Settings
+Host Binding: Ensure node/app binds to 0.0.0.0 inside the container so Traefik can reach it over the Docker bridge interface.
+
+Code snippet
+```
+PORT=3000
+HOSTNAME=0.0.0.0
+NODE_ENV=production
+```
+**2. Traefik Container Environment (.env or Compose Environment)**
+To ensure Let's Encrypt certificates generate properly and Traefik correctly routes to all containers on the host, consider the following:
+
+**A. ACME / Let's Encrypt Email**
+ACME_EMAIL: Let's Encrypt requires a valid email address to register your account and send SSL expiration/renewal notices.
+
+Code snippet
+```
+ACME_EMAIL=your-email@example.com
+```
+**B. Shared Docker Network Name**
+Standardize the network name across all docker-compose files. Avoid relying on dynamic default overrides that could create separate networks.
+
+Code snippet
+```
+TRAEFIK_NETWORK_NAME=traefik_net
+```
+**C. Wildcard / Host Base Domain (If applicable)**
+TRAEFIK_HOST: Used by n8n or other services to dynamically derive host rules (e.g., COMPOSE_PROJECT_NAME.TRAEFIK_HOST):
+
+Code snippet
+```
+TRAEFIK_HOST=srv1738397.hstgr.cloud
+```
+**3. Key Summary Checklist**
+Certificate Resolver Consistency: Ensure .env.production or compose labels specify certresolver=letsencrypt to match --certificatesresolvers.letsencrypt... declared in Traefik.
+
+Docker Network Alignment: Make sure traefik.docker.network=traefik_net is set in labels for both smcs and n8n, and that both compose files join traefik_net with external: true.
+
+Use Internal Service Names: For communication between SMCS and n8n, use http://<n8n-container-name>:5678 in .env.production rather than the external HTTPS URL to avoid firewall blockages or hairpin NAT issues on the host.
+
+## 3. Step-by-step commands to build and deploy SMCS on your VPS using Docker Compose 
 Here are the step-by-step commands to build and deploy SMCS on your VPS using Docker Compose.
 
-Step 1: Navigate to the SMCS Directory
+**Step 1: Navigate to the SMCS Directory**
 Ensure you are in the project folder where docker-compose.production.yml and .env.production are located:
 
 ```Bash
 cd ~/SMCS-CG
 ```
-Step 2: Ensure the Traefik Network Exists
+**Step 2: Ensure the Traefik Network Exists**
 Since the Docker Compose file references traefik_net as an external network, make sure it exists on your host:
 
 ```Bash
 docker network create traefik_net || true
 ```
-Step 3: Build and Start SMCS
+**Step 3: Build and Start SMCS**
 Run Docker Compose using your production file to build the image and bring the container up in detached mode:
 
 ```Bash
 docker compose -f docker-compose.production.yml up -d --build
 ```
 
-Step 4: Verify Deployment Status
+**Step 4: Verify Deployment Status**
 Check if the container is running and healthy:
 
 ```Bash
 docker compose -f docker-compose.production.yml ps
 ```
-Step 5: Check Logs for Troubleshooting
+**Step 5: Check Logs for Troubleshooting**
 To monitor startup logs or troubleshoot any routing or database issues:
 
 ```Bash
@@ -172,4 +238,37 @@ Test network connection from SMCS to n8n:
 
 ```Bash
 docker exec -it smcs-cg-smcs-1 curl -v http://n8n-with-ai-assistant-emty-n
+```
+
+
+The error may occurs while testign with curl, because the curl utility isn't installed inside the smcs container image (which is standard for minimal Node.js base images).
+
+**Here are alternative ways to test the network connection between smcs and n8n:**
+
+Method 1: Use node (Built-in to your Node.js container)
+Since Node.js is installed in your SMCS container, you can use Node's fetch API directly from the command line:
+
+```Bash
+docker exec -it smcs-cg-smcs-1 node -e "fetch('http://n8n-with-ai-assistant-emty-n8n-1:5678').then(r => console.log('HTTP Status:', r.status)).catch(e => console.error('Connection failed:', e.message))"
+```
+Success response: You should see HTTP Status: 200 or HTTP Status: 302 (if n8n redirects).
+
+Failure response: You will see Connection failed: fetch failed or a DNS lookup error.
+
+Method 2: Test TCP connection via /dev/tcp
+You can test network-level reachability directly using standard shell features:
+
+```Bash
+docker exec -it smcs-cg-smcs-1 sh -c "nc -zv n8n-with-ai-assistant-emty-n8n-1 5678"
+```
+Or using Node's network socket:
+
+```Bash
+docker exec -it smcs-cg-smcs-1 node -e "require('net').connect(5678, 'n8n-with-ai-assistant-emty-n8n-1').on('connect', () => { console.log('Port 5678 is OPEN!'); process.exit(0); }).on('error', (err) => { console.error('Connection FAILED:', err.message); process.exit(1); })"
+```
+Method 3: Run curl from a temporary container on traefik_net
+Instead of running curl inside smcs, launch a tiny temporary Alpine container attached to the same traefik_net network:
+
+```Bash
+docker run --rm --network traefik_net curlimages/curl -v http://n8n-with-ai-assistant-emty-n8n-1:5678
 ```
