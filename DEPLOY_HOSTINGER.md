@@ -122,3 +122,54 @@ Do not run `docker compose down -v` unless you intentionally want to delete the 
 - Keep `CONTENT_STUDIO_PUBLISH_MODE=simulated` until the full approval flow is validated.
 - Rotate `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, AI keys, and n8n tokens if exposed.
 - Back up the Docker volumes before upgrades.
+
+## VK. step-by-step commands to build and deploy SMCS on your VPS using Docker Compose 
+Here are the step-by-step commands to build and deploy SMCS on your VPS using Docker Compose.
+
+Step 1: Navigate to the SMCS Directory
+Ensure you are in the project folder where docker-compose.production.yml and .env.production are located:
+
+```Bash
+cd ~/SMCS-CG
+```
+Step 2: Ensure the Traefik Network Exists
+Since the Docker Compose file references traefik_net as an external network, make sure it exists on your host:
+
+```Bash
+docker network create traefik_net || true
+```
+Step 3: Build and Start SMCS
+Run Docker Compose using your production file to build the image and bring the container up in detached mode:
+
+```Bash
+docker compose -f docker-compose.production.yml up -d --build
+```
+
+Step 4: Verify Deployment Status
+Check if the container is running and healthy:
+
+```Bash
+docker compose -f docker-compose.production.yml ps
+```
+Step 5: Check Logs for Troubleshooting
+To monitor startup logs or troubleshoot any routing or database issues:
+
+```Bash
+docker compose -f docker-compose.production.yml logs -f smcs
+```
+Quick Management Snippets
+Stop the service:
+
+```Bash
+docker compose -f docker-compose.production.yml down
+```
+Restart the service:
+
+```Bash
+docker compose -f docker-compose.production.yml restart smcs
+```
+Test network connection from SMCS to n8n:
+
+```Bash
+docker exec -it smcs-cg-smcs-1 curl -v http://n8n-with-ai-assistant-emty-n
+```
