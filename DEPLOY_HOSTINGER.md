@@ -142,7 +142,10 @@ Code snippet
 ```
 N8N_API_URL=http://n8n-with-ai-assistant-emty-n8n-1:5678
 ```
-# or http://n8n:5678 if n8n service is aliased as n8n on traefik_net
+or
+```
+N8N_API_URL=http://n8n:5678 if n8n service is aliased as n8n on traefik_net
+```
 Authentication Tokens: Ensure shared keys/tokens match between both services for API requests (e.g., webhook signatures or ingestion tokens):
 
 Code snippet
