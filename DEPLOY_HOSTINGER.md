@@ -138,7 +138,7 @@ Internal n8n Endpoint URL: Since SMCS and n8n are both on the traefik_net Docker
 Instead, configure SMCS to call n8n using its Docker service name / container hostname:
 
 Code snippet
-# Use the container's service name or explicit container name on traefik_net
+Use the container's service name or explicit container name on traefik_net
 ```
 N8N_API_URL=http://n8n-with-ai-assistant-emty-n8n-1:5678
 ```
